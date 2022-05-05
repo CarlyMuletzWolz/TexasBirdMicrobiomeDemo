@@ -22,7 +22,7 @@ File name: TxBird_preProcess.Rmd
 
 Knitted file: TxBird_preProcess.html. You can download the .html to see what all the code looks like when it has been run.
 
-_ _All the files you need for this generated in Step 1: TxBird_feature_table.csv (ASV/OTU table), TxBird_meta.csv (metadata file), TxBird_taxonomy.csv (taxonomy file, TxBird_feature_DNAsequences.fasta (DNA sequences of the ASVs)
+*All the files you need for this generated in Step 1: TxBird_feature_table.csv (ASV/OTU table), TxBird_meta.csv (metadata file), TxBird_taxonomy.csv (taxonomy file, TxBird_feature_DNAsequences.fasta (DNA sequences of the ASVs)*
 
 
 ### Analysis step
@@ -31,5 +31,5 @@ File name: TxBird_InitAnalysis.Rmd
 
 Knitted file: TxBird_InitAnalysis.html. You can download the .html to see what all the code looks like when it has been run.
 
-_ _All the files you need for this: TxBird_feature_tableCLEAN.csv (ASV/OTU table after step 2), TxBird_meta_alpha.csv (metadata file after step 2), TxBird_taxonomy.csv (taxonomy file, TxBird_feature_DNAsequences.fasta (DNA sequences of the ASVs)
+*All the files you need for this: TxBird_feature_tableCLEAN.csv (ASV/OTU table after step 2), TxBird_meta_alpha.csv (metadata file after step 2), TxBird_taxonomy.csv (taxonomy file, TxBird_feature_DNAsequences.fasta (DNA sequences of the ASVs)*
 
