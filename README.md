@@ -21,7 +21,7 @@ At some point I will get them into this repository to go through my dada2 pipeli
 File name: TxBird_preProcess.Rmd
 Knitted file: TxBird_preProcess.html. You can download the .html to see what all the code looks like when it has been run.
 
-* *All the files you need for this generated in Step 1: TxBird_feature_table.csv (ASV/OTU table), TxBird_meta.csv (metadata file), TxBird_taxonomy.csv (taxonomy file, TxBird_feature_DNAsequences.fasta (DNA sequences of the ASVs)
+* All the files you need for this generated in Step 1: TxBird_feature_table.csv (ASV/OTU table), TxBird_meta.csv (metadata file), TxBird_taxonomy.csv (taxonomy file, TxBird_feature_DNAsequences.fasta (DNA sequences of the ASVs)
 
 
 ### Analysis step
