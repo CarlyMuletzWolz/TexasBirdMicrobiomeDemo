@@ -6,15 +6,17 @@ This pipeline is always a work in progress, so do not consider it complete, but 
  
 Please find attached files for your use:
  
-Sequence quality filtering, pair-end reads, assign taxonomy using dada2 in R
+## Sequence quality filtering, pair-end reads, assign taxonomy using dada2 in R
 File name: Dada2_TxBird.R
 I do not have access to the sequence data at this point, but have included the file after processing seqtab_TxBird.rds for you to look at and complete processing if useful
 At some point I will get them into the OneDrive to go through my Dada2 pipeline, but I think just seeing the code at least should be helpful
-Next pre-processing step. Remove singletons, non-bacterial taxa, contaminants and estimate alpha diversity
+
+## Pre-processing step. Remove singletons, non-bacterial taxa, contaminants and estimate alpha diversity
 File name: TxBird_preProcess.Rmd
 Knitted file: TxBird_preProcess.html
 All the files you need for this generated in Step 1: TxBird_feature_table.csv (ASV/OTU table), TxBird_meta.csv (metadata file), TxBird_taxonomy.csv (taxonomy file, TxBird_feature_DNAsequences.fasta (DNA sequences of the ASVs)
-Analysis step
+
+## Analysis step
 File name: TxBird_InitAnalysis.Rmd
 Knitted file: TxBird_InitAnalysis.html
 All the files you need for this: TxBird_feature_tableCLEAN.csv (ASV/OTU table after step 2), TxBird_meta_alpha.csv (metadata file after step 2), TxBird_taxonomy.csv (taxonomy file, TxBird_feature_DNAsequences.fasta (DNA sequences of the ASVs)
