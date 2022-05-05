@@ -1,0 +1,351 @@
+---
+title: "TxBird_preProcess"
+author: "Carly Muletz Wolz"
+date: "12/21/2020"
+output: html_document
+---
+
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+
+### Read in data and remove singletons
+```{r}
+
+##     Texas bird PRE-process Data Analysis   ###
+
+### Sept 2019 ###
+
+## Load packages
+library(phyloseq)
+library(ape)
+library(vegan)
+library(ggplot2)
+
+##Set working directory to bring in files##
+setwd("/Users/Carly/Dropbox (Smithsonian)/SI_projects/TX_migBirds/Analyses/")
+
+
+# this is site by species matrix, need row.names = 1 to have phyloseq read it
+# there was an issue with original featureTab. Left over _ in sample names and - between controls instead of _
+featureTab <- read.csv("TxBird_feature_table.csv", header = T, row.names = 1)
+
+# make compatible for phyloseq format
+featureTab = otu_table(featureTab, taxa_are_rows = TRUE)
+## 3119 taxa by 32 samples
+dim(featureTab)
+
+# Read taxonomy info in, make matrix and compatible for phyloseq
+taxonomy <- tax_table(as.matrix(read.csv("TxBird_taxonomy.csv", row.names = 1)))
+
+
+# If you have .txt file
+# meta_data <- read.delim("SalAMP_MapFinal.txt", header = T, row.names = 1, sep = "\t")
+
+meta_data <- sample_data(read.csv("TxBird_meta.csv", header = T, row.names = 1))
+
+# Read in sequence data, may need if you want to look at or subset the DNA sequences at some point
+library(Biostrings)
+seqs <- readDNAStringSet("TxBird_feature_DNAsequence.fasta")
+
+
+# You can also add a phylogenetic tree here, if you have one
+# library(ape)
+# tree = read.tree("FinalRFiles/exported-tree/SalAMPtree.nwk")
+
+# Merge it all together
+
+Tx <- merge_phyloseq(featureTab, taxonomy, meta_data, seqs) #tree)
+
+Tx
+
+sample_names(Tx)
+
+sum(sample_sums(Tx))
+
+sort(sample_sums(Tx))
+
+## Filter singletons (only occur once on 1 individual), seems to be a lot of ASVs with little information
+## This says needs to occur at least 1 time on at least 2 individual
+
+Tx2 <- filter_taxa(Tx, function (x) {sum(x > 0) >1}, prune=TRUE)
+
+## Note 3119 taxa and now 644. I always remove singletons as I believe many are spurious.
+Tx
+Tx2
+
+## above was 438352 sequences
+## now 355364, so good bit of taxa lost, and many sequences
+## Might reflect low diversity and spurious data
+sum(sample_sums(Tx))
+sum(sample_sums(Tx2))
+
+
+sort(sample_sums(Tx2))
+
+## drop samples with zero sequences
+## this is uncommon, but these bird cloacal samples were really challenging to get bacterial DNA to amplify
+Tx3 <- prune_samples(sample_sums(Tx2)>0, Tx2)
+
+sort(sample_sums(Tx3))
+
+## I know Emily was interested in this genus, so just looking at it quickly.
+## We used two different prep methods for some of the same samples .mb was not using beta mercaptoethanol (seemed to help with these challenging samples)
+## Can see all the diplor in that one sample
+Tx_diplor = subset_taxa(Tx3, Genus == "Diplorickettsia")
+
+plot_bar(Tx_diplor)
+
+```
+### Contaminant filter
+#### See more: https://benjjneb.github.io/decontam/vignettes/decontam_intro.html
+
+```{r}
+####----Decontam----####
+citation ("decontam")
+
+
+library(decontam)
+#Identify Contaminants using Frequency
+## NOTE: you need to put in your DNA quant readings that you used for pooling your library into the metadata file and call it quant_reading. Look a the tutorial indicated above
+## ALSO later you need a column that says Sample_or_Control
+contamdf.freq <- isContaminant(Tx3, method="frequency", conc="quant_reading")
+head(contamdf.freq)
+
+table(contamdf.freq$contaminant)
+## Says 51 true contaminants
+#False 593
+#True 51
+
+## these are the row numbers for the contaminants
+head(which(contamdf.freq$contaminant))
+
+#Can choose number of plots to look at
+## Pick those rows or ASVs that are considered contaminants and plot them. See first 10 in this plot. The idea is if the frequency correlates with DNA concentration then it's probably a contaminant
+set.seed(100)
+plot_frequency(Tx3, taxa_names(Tx3)[sample(which(contamdf.freq$contaminant),10)], conc="quant_reading") +
+  xlab("DNA Concentration (PicoGreen fluorescent intensity)")
+
+hist(contamdf.freq$p)
+
+#___________________________________
+
+
+
+#Identify Contaminants by Prevalence
+#May miss highly abundant ASVs because present in both negative controls and positive samples
+#Default threshold is 0.1
+
+sample_data(Tx3)$is.neg <- sample_data(Tx3)$Sample_or_Control == "Control Sample"
+contamdf.prev <- isContaminant(Tx3, method="prevalence", neg="is.neg", threshold = 0.4)
+table(contamdf.prev$contaminant)
+
+## Says 70 contaminants here
+
+#False 574
+#True 70
+
+## Looking at histogram, seems like it should be 0.4 at split in distributions
+## See paragraph in published paper for looking at distribution of p values
+hist(contamdf.prev$p)
+
+# Make phyloseq object of presence-absence in negative controls and true samples
+## Not sure quickly looking at this what you get out of this plot. But, just annotating my code quickly so...probably of value if you think about it more!
+ps.pa <- transform_sample_counts(Tx3, function(abund) 1*(abund>0))
+ps.pa.neg <- prune_samples(sample_data(ps.pa)$Sample_or_Control == "Control Sample", ps.pa)
+ps.pa.pos <- prune_samples(sample_data(ps.pa)$Sample_or_Control == "True Sample", ps.pa)
+# Make data.frame of prevalence in positive and negative samples
+df.pa <- data.frame(pa.pos=taxa_sums(ps.pa.pos), pa.neg=taxa_sums(ps.pa.neg),
+                    contaminant=contamdf.prev$contaminant)
+ggplot(data=df.pa, aes(x=pa.neg, y=pa.pos, color=contaminant)) + geom_point() +
+  xlab("Prevalence (Negative Controls)") + ylab("Prevalence (True Samples)")
+
+
+## USING This one. Taking a stringent approach because of low diversity samples (bird cloacal swabs)
+#Identify Contaminants by both: if contaminant is identifed by either frequency and prev methods
+## Changing threshold value from default for prev method based on the histogram of p-values above
+
+sample_data(Tx3)$is.neg <- sample_data(Tx3)$Sample_or_Control == "Control Sample"
+contamdf.combined <- isContaminant(Tx3, method="either", neg="is.neg", conc = "quant_reading", threshold=c(0.1, 0.4))
+table(contamdf.combined$contaminant)
+
+head(contamdf.combined)
+
+#False 529
+#True 115
+
+## You can also do combined as a method
+contamdf.combined2 <- isContaminant(Tx3, method="combined", neg="is.neg", conc = "quant_reading")
+table(contamdf.combined2$contaminant)
+
+
+## Says in paper that combined method provides the best bimodal distribution 
+## suggesting that is will be the more robust classification when both data types
+## are present, but we don't really see that here...
+hist(contamdf.freq$p)
+hist(contamdf.prev$p)
+hist(contamdf.combined2$p)
+
+## Using the either method as indicated above
+
+
+####----Delete Contaminants----####
+#Need to delete ASVs found as contaminants by either method
+
+Tx4 <- prune_taxa(!contamdf.combined$contaminant, Tx3)
+Tx4
+
+sample_names(Tx4)
+sort(sample_sums(Tx4))
+
+##drop neg controls for right now and duplicates with different sample prep = .mb
+
+Tx5 <- subset_samples(Tx4, !(Type == "Control") & !(Prep == "Different"))
+
+sort(sample_sums(Tx5))
+sum(sample_sums(Tx5))
+
+## drop low coverage samples
+Tx5 <- prune_samples(sample_sums(Tx5)>700, Tx5)
+
+## ALSO, very important REMOVE all ASVs that do not assign at least to Bacteria 
+## From experience, I have found many of these map to host 16S or we just can't really trust as being bacteria if they don't assign at least at the kingdom level
+
+get_taxa_unique(Tx5, "Kingdom")
+
+Tx5 = subset_taxa(Tx5, Kingdom == "Bacteria")
+
+get_taxa_unique(Tx5, "Kingdom")
+
+Tx5
+
+```
+
+
+###rarefaction plots for coverage
+#### Coverage looks fine
+
+```{r}
+## Load packages
+library(ggplot2)
+library(phyloseq)
+library(reshape2)
+library(ape)
+library(gridExtra)
+
+scripts <- c("graphical_methods.R",
+             "tree_methods.R",
+             "plot_merged_trees.R",
+             "specificity_methods.R",
+             "ternary_plot.R",
+             "richness.R",
+             "edgePCA.R",
+             "copy_number_correction.R",
+             "import_frogs.R",
+             "prevalence.R",
+             "compute_niche.R")
+urls <- paste0("https://raw.githubusercontent.com/mahendra-mariadassou/phyloseq-extended/master/R/", scripts)
+
+for (url in urls) {
+  source(url)
+}
+
+
+p <- ggrare(Tx5, step = 100, color = "Type", se = FALSE)
+
+## NOTE: change the xlim based on your data or ability to see lower sequence numbers
+p + theme_bw() + theme_classic() + xlab("Sequence count") + ylab("Bacterial ASV richness") +
+  theme(text = element_text(size = 15)) + labs(color='Sample type') +xlim(0,50000) 
+
+p + theme_bw() + theme_classic() + xlab("Sequence count") + ylab("Bacterial ASV richness") +
+  theme(text = element_text(size = 15)) + labs(color='Sample type') +xlim(0,10000) 
+
+p + theme_bw() + theme_classic() + xlab("Sequence count") + ylab("Bacterial ASV richness") +
+  theme(text = element_text(size = 15)) + labs(color='Sample type') +xlim(0,2000) 
+
+
+## Not bad for coverage, seems like by 2,000 sequences we are sequencing most of the community. A couple samples are still climbing.
+
+## We have large variation in sequencing coverage though. 
+max(sample_sums(Tx5))/min(sample_sums(Tx5))
+
+## And the distribution of sequences
+sort(sample_sums(Tx5))
+
+## So we will need to rarefy and rarefying to 984 (lowest sequence coverage for this dataset), still maintains having decent leveling off of rarefaction plot. Could drop samples below 2,000 also if had a more robust dataset
+
+```
+
+### Alpha diversity
+
+#### You will need to do this your first run of the code and add alpha diversity estimates to your metadata file, then don't need to do again afterwards. 
+```{r, eval = F}
+
+######### ALPHA DIVERSITY Calculate and add to mapping file with seq counts  ############
+
+dfTx <- as(sample_data(Tx5), "data.frame")
+
+t_otu <-t(as(otu_table(Tx5), "matrix"))
+
+AD <- estimateR(t_otu)
+AD <- t(as.data.frame(AD))
+
+#need to have both alpha and df having the same column info
+# this won't work with estimateR, but is if you use PD estimate for phylogenetic diversity
+#PD$SampleID <- row.names(PD)
+
+## Add sequence coverage info
+seqs <- as.data.frame(sample_sums(Tx5))
+seqs$SampleID <- row.names(seqs)
+
+#now merge to get sequence counts and alpha estimates in mapping file
+alpha_df <- merge(dfTx, AD,  by = "row.names")
+alpha_df$SampleID <- alpha_df$Row.names
+alpha_df <- merge(alpha_df, seqs, by = "SampleID")
+row.names(alpha_df) <- alpha_df$Row.names
+
+
+## Because there is a huge sequence count differences rarefying
+TxRare = rarefy_even_depth(Tx5, replace=FALSE, rngseed = 711)
+sort(sample_sums(TxRare))
+
+
+t_otuR <-t(as(otu_table(TxRare), "matrix"))
+
+## ADD alpha estimates for rarefied dataset. WE are using this for analyses, but if you have even coverage <10x variation then you don't need to verify. I have rationale for this if interested
+AD2 <- estimateR(t_otuR)
+AD2 <- t(as.data.frame(AD2))
+AD2
+colnames(AD2)[colnames(AD2)=="S.obs"] <- "S.obs_rare"
+colnames(AD2)[colnames(AD2)=="S.chao1"] <- "S.chao1_rare"
+colnames(AD2)[colnames(AD2)=="S.ACE"] <- "S.ACE_rare"
+
+
+
+#now merge to get SR and PD of rarefied in mapping file
+## you get a warning about duplicate row.names, but that's fine.
+alpha_df_rare <- merge(alpha_df, AD2, by = "row.names")
+
+
+## NOTE: once you make this file you can read it at the beginning and you don't need to do these calculations again
+
+## NOTE: I also like phylogenetic diversity to estimate, but you need a bacterial tree for that and in this example, I did not generate one. I have code if you would like. I make the tree in QIIME. I have not found a way to do it in R that works. 
+
+## This now is your clean file. All negs are removed and all samples with low coverage.
+## delete the first two columns that were introduced into the file, but not needed
+alpha_df_rare <- alpha_df_rare[, -1]
+write.csv(alpha_df_rare, "TxBird_meta_alpha.csv", row.names = F)
+
+## ALSO write your clean feature table (no contaminants, no singletons, etc)
+
+## THESE TWO files will then be used to subset your other files in your final analyses
+## convert feature table to matrix and transpose
+species_site <-as(otu_table(Tx5), "matrix")
+
+write.csv(species_site, "TxBird_feature_tableCLEAN.csv")
+
+```

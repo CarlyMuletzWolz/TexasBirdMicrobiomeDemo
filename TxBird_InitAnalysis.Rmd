@@ -1,0 +1,625 @@
+---
+title: "TxBird-InitAnalysis"
+author: "Carly Muletz Wolz"
+date: "12/21/2020"
+output: html_document
+---
+
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+
+### Read in data 
+## This now is your clean meta data and feature table
+```{r}
+
+## Load packages
+library(phyloseq)
+library(ape)
+library(vegan)
+library(ggplot2)
+
+##Set working directory to bring in files##
+setwd("/Users/Carly/Dropbox (Smithsonian)/SI_projects/TX_migBirds/Analyses/")
+
+
+# this is site by species matrix, need row.names = 1 to have phyloseq read it
+# there was an issue with original featureTab. Left over _ in sample names and - between controls instead of _. HAd to manually edit to get file in
+featureTab <- read.csv("TxBird_feature_tableCLEAN.csv", header = T, row.names = 1)
+
+# make compatible for phyloseq format
+featureTab = otu_table(featureTab, taxa_are_rows = TRUE)
+## 529 taxa by 18 samples
+dim(featureTab)
+
+# Read taxonomy info in, make matrix and compatible for phyloseq
+## This file will be subset to only include the taxonomy that makes to the features (OTUs, ASVs)
+taxonomy <- tax_table(as.matrix(read.csv("TxBird_taxonomy.csv", row.names = 1)))
+
+
+# Read metadata info in, make compatible for phyloseq
+## NOTE: we calculated alpha diversity estimates and added to _meta file and called it now _alpha. 
+## You may need to change row.names = if your sampleID is in a different column. Ours is in column 2
+
+meta_data <- sample_data(read.csv("TxBird_meta_alpha.csv", header = T, row.names = 2))
+
+
+# Read in sequence data, may need if you want to look at or subset the DNA sequences at some point
+library(Biostrings)
+seqs <- readDNAStringSet("TxBird_feature_DNAsequence.fasta")
+
+
+# You can also add a phylogenetic tree here, if you have one
+# library(ape)
+# tree = read.tree("FinalRFiles/exported-tree/SalAMPtree.nwk")
+
+# Merge it all together
+
+sample_names(meta_data)
+
+Tx <- merge_phyloseq(featureTab, taxonomy, meta_data, seqs) #tree)
+
+Tx
+
+sample_names(Tx)
+
+## Total of 175,377 sequences across 18 samples
+sum(sample_sums(Tx))
+
+sort(sample_sums(Tx))
+
+## BUT, remember we have to analyze the rarefied dataset because of sequencing coverage issues
+
+Tx = rarefy_even_depth(Tx, replace=FALSE, rngseed = 711)
+
+## In the end, in the results section I would report we had 17,712 high quality sequences we analyzed after normalization to even sequencing depth. 
+sum(sample_sums(Tx))
+
+
+### MAKE dataframe of metadata for alpha and beta analyses. This makes sure your metadata are in same order as your feature table
+
+dfTx <- as(sample_data(Tx), "data.frame")
+
+## We also will be interested in just the cloacal swab data for some comparisons and also just the Oven bird (also samples swaisons)
+## Let's make these files now for later
+
+TxC <- subset_samples(Tx, Type == "CloacalSwab")
+dfTxC <- as(sample_data(TxC), "data.frame")
+
+TxO <- subset_samples(Tx, Species == "OVEN")
+dfTxO <- as(sample_data(TxO), "data.frame")
+
+
+library(plyr)
+
+## Info on sample sizes 
+info <- ddply(dfTx , .(Type, Species), summarize, sample_size=length(Type))
+info
+
+```
+
+
+### Alpha diversity
+```{r}
+
+
+## Alpha
+
+str(dfTx)
+
+## let's look at alpha estimates between cloacal swabs and fecal samples
+## Remember we are using the rarefied estimates since we had so much variation in sequencing coverage
+ggplot(data = dfTx, aes(x=Type, y=S.obs_rare))+geom_boxplot()+theme_bw()+theme_classic()+
+  theme(text = element_text(size = 20)) + ylab("Bacterial ASV richness") + xlab("")
+
+## plot made with base R, quicker to write, but not as great at modifying for pub as ggplot figures
+plot(dfTx$S.obs_rare ~ dfTx$Type)
+
+## how about alpha across samples
+plot(dfTx$S.obs_rare ~ dfTx$SampleID)
+
+
+## make with ggplot instead
+ggplot(data = dfTx, aes(x=as.factor(SampleID), y=S.obs_rare))+geom_bar(stat = "identity")+theme_bw()+theme_classic()+
+  theme(text = element_text(size = 20)) + ylab("Bacterial ASV richness") + xlab("") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+## How about between bird species, but we need to subset to only cloacal swabs for this comparison. So we use the cloacal swab data we subsetted above
+## Fecals were only taken for Oven birds
+
+ggplot(data = dfTxC, aes(x=Species, y=S.obs_rare))+geom_boxplot()+theme_bw()+theme_classic()+
+  theme(text = element_text(size = 20)) + ylab("Bacterial ASV richness") + xlab("")
+
+
+## Oh, so if oven birds were the only bird with both fecals and clocal swabs then we should subset to them when look at differencees between fecals and cloacals. 
+
+ggplot(data = dfTxO, aes(x=Type, y=S.obs_rare))+geom_boxplot()+theme_bw()+theme_classic()+
+  theme(text = element_text(size = 20)) + ylab("Bacterial ASV richness") + xlab("")
+
+
+### STATS for between cloacal and fecals and STATs for between bird species 
+
+
+#### CLOACAL vs FECES in Oven birds
+## look at distribution of species richness values
+## looks normal
+hist(dfTxO$S.obs_rare)
+
+## p value is above 0.05, so data is normally distributed
+shapiro.test(dfTxO$S.obs_rare)
+
+## You can try log10(dfTx$S.obs_rare)
+## You can try srqt like this to make data normal, either of those usually work for me
+
+
+library(car)
+## testing for homogeneity of variance
+## p value is above 0.05, so data similar variances
+leveneTest(S.obs_rare~Type, data=dfTxO)
+
+## Good to go for t-test and met assumptions
+modeAlphaO <- t.test(S.obs_rare~Type, data=dfTxO)
+modeAlphaO
+
+## So, says this is not different in alpha between cloacal and fecals
+ggplot(data = dfTxO, aes(x=Type, y=S.obs_rare))+geom_boxplot()+theme_bw()+theme_classic()+
+  theme(text = element_text(size = 20)) + ylab("Bacterial ASV richness") + xlab("")
+
+## Now for reasons of showing how to do stats with 2+ levels (ANOVA), let's make a third level to compare 
+
+str(dfTx)
+## We have species and type factors we can combine to make another set of levels
+
+dfTx$SpeciesType <- as.factor(paste(dfTx$Species, dfTx$Type))
+levels(dfTx$SpeciesType)
+
+## Can add this to phyloseq object also
+sample_data(Tx)$SpeciesType <- as.factor(paste(sample_data(Tx)$Species, sample_data(Tx)$Type))
+
+
+shapiro.test(dfTx$S.obs_rare)
+leveneTest(S.obs_rare~SpeciesType, data=dfTx)
+
+## good for ANOVA
+modeAlpha2 <- aov(S.obs_rare~SpeciesType, data=dfTx)
+summary(modeAlpha2)
+
+## So, says this is not different in alpha between cloacal and fecals
+ggplot(data = dfTx, aes(x=SpeciesType, y=S.obs_rare))+geom_boxplot()+theme_bw()+theme_classic()+
+  theme(text = element_text(size = 20)) + ylab("Bacterial ASV richness") + xlab("")
+
+## But, if sig then run Tukey's, can see swth cloacal almost differnt to oven fecal, which we can see in the plot
+TukeyHSD(modeAlpha2)
+
+#### BETWEEN SPECIES STATS for alpha, remember need just the cloacal data for this
+
+## not normal, so transform, normal with log10 transformation, use this in stats then
+shapiro.test(dfTxC$S.obs_rare)
+shapiro.test(log10(dfTxC$S.obs_rare))
+
+leveneTest(log10(S.obs_rare)~Species, data=dfTxC)
+
+
+## Good to go for t-test and met assumptions with log10
+modeAlphaC <- t.test(log10(S.obs_rare)~Species, data=dfTxC)
+modeAlphaC
+
+## So not different, can visualize again
+ggplot(data = dfTxC, aes(x=Species, y=S.obs_rare))+geom_boxplot()+theme_bw()+theme_classic()+
+  theme(text = element_text(size = 20)) + ylab("Bacterial ASV richness") + xlab("")
+
+##Can visualize also on log10 to see what stats see
+ggplot(data = dfTxC, aes(x=Species, y=log10(S.obs_rare)))+geom_boxplot()+theme_bw()+theme_classic()+
+  theme(text = element_text(size = 20)) + ylab("Bacterial ASV richness") + xlab("")
+
+
+## You can then go through with other alpha diversity estimates as desired
+## I do not suggest analyzing Shannon as it voliates test assumptions since it is generally on scale to 1-7 and not truly numeric, need to analyze with special statistics
+## I prefer species richness and faith's phylogenetic diversity. Evenness may also be of interest too. But, don't throw the kitchen sink at it. Think about why you are analyzing an alpha metric and what it would mean biologically before you start analyzing
+
+```
+
+### Beta diversity
+```{r}
+ 
+
+### NOTE: When you do jaccard, it is critical that you put binary = T, so that it is looking at presence absence data. 
+
+jacc_tx <- phyloseq::distance(Tx, "jaccard", binary = T)
+jacc.ord <- ordinate(Tx, method = "PCoA", jacc_tx)
+
+## Look at our three levels we made earlier, species type
+p_jacc <- plot_ordination(Tx, jacc.ord, color = "Type", shape = "Species")
+p_jacc + geom_point(size = 4)  +theme_bw() +theme_classic()+ 
+  theme(text = element_text(size = 20))+ stat_ellipse(aes(group = SpeciesType))
+
+## Probably better to plot like this
+p_jacc2 <- plot_ordination(Tx, jacc.ord, color = "SpeciesType")
+p_jacc2 + geom_point(size = 4)  +theme_bw() +theme_classic()+ 
+  theme(text = element_text(size = 20))+ stat_ellipse(aes(group = SpeciesType))
+
+
+
+### STATS
+jacc_adonisST <- adonis(jacc_tx ~ SpeciesType, data = dfTx)
+jacc_adonisST
+
+
+library(pairwiseAdonis)
+
+## So, looks like a type effect we are picking up here, fecals are different
+pairwise.adonis(jacc_tx, dfTx$SpeciesType)
+
+### Let's see if there is a species effect we are missing because of the huge effect of fecal vs cloaca
+
+jacc_sp <- phyloseq::distance(TxC, "jaccard", binary = T)
+jacc.ordS <- ordinate(TxC, method = "PCoA", jacc_sp)
+
+p_jaccS <- plot_ordination(TxC, jacc.ordS, color = "Species", shape = "Species")
+p_jaccS + geom_point(size = 4)  +theme_bw() +theme_classic()+ 
+  theme(text = element_text(size = 20))+ stat_ellipse(aes(group = Species))
+
+### STATS, no species effect, low sample size though
+jacc_adonisSp <- adonis(jacc_sp ~ Species, data = dfTxC)
+jacc_adonisSp
+
+
+
+## Ok, last bit, how about between oven cloacal and oven fecal
+
+jacc_t <- phyloseq::distance(TxO, "jaccard", binary = T)
+jacc.ordO <- ordinate(TxO, method = "PCoA", jacc_t)
+
+p_jaccT <- plot_ordination(TxO, jacc.ordO, color = "Type", shape = "Type")
+p_jaccT + geom_point(size = 4)  +theme_bw() +theme_classic()+ 
+  theme(text = element_text(size = 20))+ stat_ellipse(aes(group = Type))
+
+### STATS, no species effect, low sample size though
+jacc_adonisT <- adonis(jacc_t ~ Type, data = dfTxO)
+jacc_adonisT
+
+
+## But, I feel like this would be the plot I would show, and I would do the stats separately. Species effect with just cloacal samples, and type effect of just oven birds
+
+## Dress the figure up a bit
+p_jacc2 <- plot_ordination(Tx, jacc.ord, color = "SpeciesType", shape = "SpeciesType")
+p_jacc2 + geom_point(size = 4)  +theme_bw() +theme_classic()+ 
+  theme(text = element_text(size = 20))+ stat_ellipse(aes(group = SpeciesType)) +
+  labs("Sample type") + scale_color_manual(values = c("blue", "chocolate4", "green"), name = "Sample type") +
+  scale_shape_manual(values = c(17, 19, 15), name = "Sample type")
+
+## Can repeat these analyses with Bray-Curtis, etc. I prefer Jaccard and Bray-Curtis as defaults. One looking at presence-absence differces (Jaccard) and one considered relative abundances and differences (Bray-Curtis). Unifrac and weigthed unifrac as useful too i fyou have a phylogenetic tree.
+
+
+```
+
+## Relative abundance and taxonomy distribution
+
+```{r}
+## taxonomy table of just cloacal swabs, was interested in this for some reason
+## leaving code in case of interest
+tax <- as(tax_table(TxC), "matrix")
+#write.csv(tax, "TxBird_taxonomyCloacaAfterFiltering.csv")
+
+rank_names(Tx)
+
+## Distribution across samples of some genus of bacterial pathogens of concerns.
+## Each bar means it is a different ASV
+Tx_diplor = subset_taxa(Tx, Genus == "Diplorickettsia")
+
+plot_bar(Tx_diplor)
+
+Tx_myco = subset_taxa(Tx, Genus == "Mycobacterium")
+
+plot_bar(Tx_myco)
+
+
+
+## Using pipes for this code
+## Much better than creating lots of objects like old code I had
+
+library(magrittr)
+library(dplyr)
+Tx_phylum <- Tx %>%
+  tax_glom(taxrank = "Phylum") %>%                     # agglomerate at phylum level
+  transform_sample_counts(function(x) {x/sum(x)} ) %>% # Transform to rel. abundance
+  psmelt() %>%                                         # Melt to long format
+  arrange(Phylum)                                      # Sort data frame alphabetically 
+
+## get warning message, no worries
+
+p_RA <- ggplot(data=Tx_phylum, aes(x=Sample, y=Abundance, fill=Phylum))
+
+p_RA + geom_bar(aes(), stat="identity", position="stack")  + 
+  ylab("Relative abundance (% of sequences)") +theme_classic()  + theme_bw()  +
+  theme_classic()+ labs(x = "")+ theme(text = element_text(size = 18))
+
+
+## better to make your own colors
+cbPalette <- c("black", "mediumpurple", "#999999", "#CC79A7", "#56B4E9", "#009E73", "aquamarine2", "#F0E442","#0072B2","#E69F00","#D55E00" , "gray44", "darkolivegreen1")
+
+p_RA + geom_bar(aes(), stat="identity", position="stack")  + 
+  ylab("Relative abundance (% of sequences)") +theme_classic()  + theme_bw()  +
+  theme_classic()+ labs(x = "")+ theme(text = element_text(size = 18)) + scale_fill_manual(values=cbPalette,name="Phylum")
+
+## Let's merge by SpeciesType
+
+Tx_phylum <- Tx %>%
+  tax_glom(taxrank = "Phylum") %>%  # agglomerate at phylum level
+  merge_samples("SpeciesType") %>%  # merge samples on variable of interest
+  transform_sample_counts(function(x) {x/sum(x)} ) %>% # Transform to rel. abundance
+  psmelt() %>%                                         # Melt to long format
+  arrange(Phylum)  
+
+
+ggplot(data=Tx_phylum, aes(x=Sample, y=Abundance, fill=Phylum)) +geom_bar(aes(), stat="identity", position="stack")  + 
+  ylab("Relative abundance (% of sequences)") +theme_classic() + theme_bw()  +
+  theme_classic()+ labs(x = "")+ theme(text = element_text(size = 18)) + scale_fill_manual(values=cbPalette,name="Phylum") + theme(axis.text.x = element_text(angle = 50, vjust = 0.5))
+
+
+## How about at genus level?
+## NOTE: we need to filter low abundance ASVs
+## This will take a little time to run depending on dataset
+## NOTE: when you get to these lower tax levels you need to think about tax_glom and the NArm = T or F option. See the help file of tax_glom. I feel like you shouldn't remove taxa that don't have a genus assignment, so I prefer NArm = F when doing analyses, but for making the plots NArm = T (default) is preferred or otherwise challenging to plot. Still thinking through this, but a note that taxa are removed that don't have genus level assignments when you do tax_glom at genus level
+
+Tx_genus05 <- Tx %>%
+  tax_glom(taxrank = "Genus", NArm = T) %>%  # agglomerate at phylum level
+  merge_samples("SpeciesType") %>%  # merge samples on variable of interest
+  transform_sample_counts(function(x) {x/sum(x)} ) %>% # Transform to rel. abundance
+  psmelt() %>%                                         # Melt to long format
+  filter(Abundance > 0.05) %>% 
+  arrange(Genus)  
+
+## Can play around with the filter number. Could try 1% or 5%, etc
+
+
+ggplot(data=Tx_genus05, aes(x=Sample, y=Abundance, fill=Genus)) +geom_bar(aes(), stat="identity", position="stack")  + 
+  ylab("Relative abundance (% of sequences)") +theme_classic() + theme_bw()  +
+  theme_classic()+ labs(x = "")+ theme(text = element_text(size = 18)) + scale_fill_manual(values=cbPalette,name="Genus") + theme(axis.text.x = element_text(angle = 50, vjust = 0.5))
+
+Tx_genus01 <- Tx %>%
+  tax_glom(taxrank = "Genus") %>%  # agglomerate at phylum level
+  merge_samples("SpeciesType") %>%  # merge samples on variable of interest
+  transform_sample_counts(function(x) {x/sum(x)} ) %>% # Transform to rel. abundance
+  psmelt() %>%                                         # Melt to long format
+  filter(Abundance > 0.01) %>% 
+  arrange(Genus)  
+
+## Will let use default colors for now, would need to provide many more colors to get cbPalette to fill in.
+
+ggplot(data=Tx_genus01, aes(x=Sample, y=Abundance, fill=Genus)) +geom_bar(aes(), stat="identity", position="stack")  + 
+  ylab("Relative abundance (% of sequences)") +theme_classic() + theme_bw()  +
+  theme_classic()+ labs(x = "")+ theme(text = element_text(size = 18)) + theme(axis.text.x = element_text(angle = 50, vjust = 0.5))
+
+## Remove legend so can see plot
+ggplot(data=Tx_genus01, aes(x=Sample, y=Abundance, fill=Genus)) +geom_bar(aes(), stat="identity", position="stack")  + 
+  ylab("Relative abundance (% of sequences)") +theme_classic() + theme_bw()  +
+  theme_classic()+ labs(x = "")+ theme(text = element_text(size = 18)) + theme(axis.text.x = element_text(angle = 50, vjust = 0.5)) + theme(legend.position = "none")
+
+## Ok, not totally in love with this figure. Would need some tweaks or annotation in legend 
+
+## or this addition might help
+
+Tx_genus2 <- Tx %>%
+  tax_glom(taxrank = "Genus") %>%  # agglomerate at phylum level
+  merge_samples("SpeciesType") %>%  # merge samples on variable of interest
+  transform_sample_counts(function(x) {x/sum(x)} ) %>% # Transform to rel. abundance
+  psmelt() %>%                                         # Melt to long format
+  arrange(Genus)  
+
+Tx_genus2$Genus <- as.character(Tx_genus2$Genus) #convert to character
+
+Tx_genus2$Genus[Tx_genus2$Abundance < 0.05] <- "Genera < 5% abund."
+
+ggplot(data=Tx_genus2, aes(x=Sample, y=Abundance, fill=Genus)) +geom_bar(aes(), stat="identity", position="stack")  + 
+  ylab("Relative abundance (% of sequences)") +theme_classic() + theme_bw()  +
+  theme_classic()+ labs(x = "")+ theme(text = element_text(size = 18))  + theme(axis.text.x = element_text(angle = 50, vjust = 0.5)) + scale_fill_manual(values=cbPalette,name="Genus")
+
+
+
+```
+
+
+### Differential abundances
+```{r}
+####    DIFFERNTIAL ABUNDANCE TESTING   ##########
+
+
+library(DAtest)
+## More here: https://github.com/Russel88/DAtest/wiki
+
+## DAtest does not perform well with ASV level. 
+## Posted on github https://github.com/Russel88/DAtest/issues/9
+## Basically can only look at FPR and use that to rank. 
+
+## For this example let's look at differences in abundances of ASVs and of phylum between fecal and swabs as we know there are differences there. 
+
+## Change min number of samples based on your data. Not a lot of samples here so doing low for 3
+TxODA <- preDA(TxO, min.samples = 3, min.reads = 1, min.abundance = 0) 
+
+## Testing DA for 133 ASVs
+TxODA 
+
+## Will take some time to run depending on data size
+mytest <- testDA(TxODA, predictor = "Type")
+
+## The higher the score the better, but our data does not return scores
+## read more here: https://github.com/Russel88/DAtest/issues/9
+## From the paper - In general, the methods per- form better with paired tests, with higher AUC and lower FPR
+summary(mytest)
+
+## For our data looks like lia and ds2 look like two good tests to compare
+## I generally pick two tests and compare their results to find sig ASVs
+## The tests are all called DA.xx to run in DAtest package. For instance lia is DA.lia 
+
+res.lia <- DA.lia(TxODA, predictor = "Type")
+res.lia
+
+res.lia[res.lia$pval.adj < 0.05,"Feature"]
+## Three ASVs sig: ASV20, ASV6 and ASV8
+
+res.ds2 <- DA.ds2(TxODA, predictor = "Type")
+res.ds2
+
+res.ds2[res.ds2$pval.adj < 0.05,"Feature"]
+## Three ASVs sig: ASV20, ASV12 and ASV8
+
+## NOTE: some tests don't give back pval.adj values and I just don't use them...
+
+### We can conclude that ASV20 and ASV8 are probably really differentially abundant between fecals and cloacal samples. Let's plot
+
+featurePlot(TxODA, predictor = "Type", feature = "ASV20") + theme_classic()
+
+featurePlot(TxODA, predictor = "Type", feature = "ASV8") + theme_classic()
+
+## Could do this at genus level and phylum level. In between I generally can't think of how to interpret it biologically. You need to merge_taxa and I would suggest when you do that 
+
+## Let's do genus level
+## I just use the same tests that worked on the ASV level data for the higher taxa levels. There is not enough information when you merge at higher taxonmic scales to evalutae the methods
+TxO_G <- tax_glom(TxO, taxrank = "Genus")
+
+
+TxO_G
+## Testing 199 genera
+
+res.liaG <- DA.lia(TxO_G, predictor = "Type")
+res.liaG
+
+res.liaG[res.liaG$pval.adj < 0.05,"Feature"]
+## Three genera sig, represented by these ASVs: "ASV193" "ASV215" "ASV301" "ASV451" "ASV8"
+
+res.ds2G <- DA.ds2(TxO_G, predictor = "Type")
+res.ds2G
+
+res.ds2G[res.ds2G$pval.adj < 0.05,"Feature"]
+
+## Nothing with ds2...hmmm... 
+
+featurePlot(TxO_G, predictor = "Type", feature = "ASV8") + theme_classic()
+
+featurePlot(TxO_G, predictor = "Type", feature = "ASV193") + theme_classic()
+
+featurePlot(TxO_G, predictor = "Type", feature = "ASV215") + theme_classic()
+
+## These plots do show differences between sample types at the genus level. Would report
+
+## last phylum level 
+
+
+TxO_P <- tax_glom(TxO, taxrank = "Phylum")
+
+
+TxO_P
+## Testing 13 phyla
+
+res.liaP <- DA.lia(TxO_P, predictor = "Type")
+res.liaP
+
+res.liaP[res.liaP$pval.adj < 0.05,"Feature"]
+## None here, but you can see that a few phyla are close to sig at 0.06 
+
+res.ds2P <- DA.ds2(TxO_P, predictor = "Type")
+res.ds2P
+
+res.ds2P[res.ds2P$pval.adj < 0.05,"Feature"]
+
+
+## Can look at plot again. Surprisingly Proteobacteria nor Bacteroidetes come back as signifant (or near sig) in either of the tests even though they look quite different here. May reflect low sample size...
+ggplot(data=Tx_phylum, aes(x=Sample, y=Abundance, fill=Phylum)) +geom_bar(aes(), stat="identity", position="stack")  + 
+  ylab("Relative abundance (% of sequences)") +theme_classic() + theme_bw()  +
+  theme_classic()+ labs(x = "")+ theme(text = element_text(size = 18)) + scale_fill_manual(values=cbPalette,name="Phylum") + theme(axis.text.x = element_text(angle = 50, vjust = 0.5))
+
+
+
+```
+
+### Indicator Species analysis 
+
+```{r}
+########       Indicator Species Analysis       ##########
+## Run this on the same dataset did for DA testing
+## Looking for taxa that distinguish groups. In differential abundance testing above the bacterial taxa may be present in both groups, but the abundance is difference. In the ISA below we are looking for taxa that are generally in one group and not the other. 
+
+TxODA
+
+## 133 taxa found in at least 3 samples
+
+dfTxO_R <- as(sample_data(TxODA), "data.frame")
+
+otu_R <- as.data.frame(t(as(otu_table(TxODA), "matrix")))
+
+### On presence/absence data instead
+
+otu_pa = as.data.frame(ifelse(otu_R>0,1,0))
+
+library(indicspecies)
+set.seed(714)
+
+## Think about max.order depending on the number of groups you have
+indval_pa = multipatt(otu_pa, dfTxO_R$Type, max.order =2, control = how(nperm=999))
+
+summary(indval_pa, indvalcomp = T)
+## BUT you need to correct for multiple comparisons
+indval_pa$sign
+
+##A -->
+# this is the species that only occur in one group, but may not occur in all the replicates
+
+# Faithful to group analysis (B)
+# this is the species that occur only in that group and in all replicates
+##basically A and B have to both be above 0.7
+
+p_2 <- indval_pa$sign$p.value
+## taking p values from that and making it a vector of just p values
+p_adj_2 <- round(p.adjust(p_2, "fdr"),3)
+## adjusting p values to do multiple comparisons,fdr --> false discovery rate
+cbind(p_adj_2,rownames(indval_pa$sign))
+
+table_ISA <- as.data.frame(cbind(p_adj_2,rownames(indval_pa$sign)))
+
+## going to write this table, because using permutations values can change.
+
+write.csv(table_ISA, "ASVs_from_indicator_species.csv")
+
+#my_sigASVs <- read.csv("ASVs_from_indicator_species.csv", header = T, stringsAsFactors = F)
+
+my_sigASVs <- table_ISA[ which(p_adj_2 < 0.05 ),]
+
+my_sigASVs <- my_sigASVs[,2]
+
+## Five ASVs, now let's make sure they had good indicator values
+## ASV20  ASV114 ASV193 ASV301 ASV302
+
+summary(indval_pa, indvalcomp = T)
+
+## All have strong indicator stats value > 0.7
+
+tax_table(TxODA)
+
+## Need an OTU ID in the taxonomy table to match to
+tax_table(TxODA) <- cbind(tax_table(TxODA), ASV=taxa_names(TxODA))
+head(tax_table(TxODA))
+Select_my_sigASVs <-  subset_taxa(TxODA, ASV %in% my_sigASVs)
+
+tax_table(Select_my_sigASVs)
+
+
+ASV20 <- subset_taxa(TxODA, ASV == "ASV20")
+
+plot_bar(ASV20, "Type", "Abundance")
+
+## Looks like found in 6 samples of cloaca (each stack is a sample), and none in fecal
+
+ASV301 <- subset_taxa(TxODA, ASV == "ASV301")
+plot_bar(ASV301, "Type", "Abundance")
+
+## This is the reverse, 6 samples fecal and none in cloacal. Family Geminicoccus is this ASV. 
+
+
+
+
+##### THE END (for now ;)) #######
+```
